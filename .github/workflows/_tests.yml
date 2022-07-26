@@ -16,7 +16,7 @@ on:
         type: number
       extensions:
         description: "PHP extensions"
-        default: simplexml, mbstring
+        default: simplexml, mbstring, sqlite3
         required: false
         type: string
       tools:
