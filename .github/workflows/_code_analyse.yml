@@ -15,7 +15,7 @@ on:
       tools:
         description: "PHP tools"
         required: false
-        default: composer, cs2pr, phpstan, nunomaduro/larastan
+        default: composer, cs2pr
         type: string
       ini_values:
         description: "PHP ini values"
@@ -86,4 +86,4 @@ jobs:
           composer-options: "--prefer-dist"
 
       - name: Run PHPStan
-        run: phpstan analyse -c ${{ inputs.config_file }}
+        run: vendor/bin/phpstan analyse -c ${{ inputs.config_file }}
