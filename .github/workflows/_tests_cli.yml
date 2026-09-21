@@ -1,0 +1,88 @@
+name: Code Testing (cli)
+
+# Runs a suite that is a plain command rather than a test runner, for projects with no phpunit.
+# The command's exit code decides the check. Used by senex-server, whose suites are standalone
+# scripts (see its tests/README.md).
+
+on:
+  workflow_call:
+    inputs:
+      command:
+        description: "Command that runs the suite, its exit code decides the check"
+        required: true
+        type: string
+      cache_key:
+        description: "PHP extensions cache key"
+        required: true
+        type: string
+      php_version:
+        description: "PHP version the suite runs on"
+        default: "7.1"
+        required: false
+        type: string
+      extensions:
+        description: "PHP extensions"
+        default: simplexml, mbstring
+        required: false
+        type: string
+      tools:
+        description: "PHP tools"
+        default: none
+        required: false
+        type: string
+      ini_values:
+        description: "PHP ini values"
+        default: max_execution_time=180, date.timezone=America/New_York
+        required: false
+        type: string
+
+jobs:
+  tests:
+    timeout-minutes: 15
+    if: github.event.pull_request.draft == false
+    name: tests
+    runs-on: ${{ matrix.os }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest ]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup cache environment
+        id: ext-cache
+        uses: shivammathur/cache-extensions@v1
+        with:
+          php-version: ${{ inputs.php_version }}
+          extensions: ${{ inputs.extensions }}
+          key: ${{ inputs.cache_key }}
+
+      - name: Cache extensions
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.ext-cache.outputs.dir }}
+          key: ${{ steps.ext-cache.outputs.key }}
+          restore-keys: ${{ steps.ext-cache.outputs.key }}
+
+      - name: Setup PHP version ${{ inputs.php_version }} on ${{ matrix.os }}
+        id: setup-php
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php_version }}
+          extensions: ${{ inputs.extensions }}
+          tools: ${{ inputs.tools }}
+          coverage: none
+          ini-values: ${{ inputs.ini_values }}
+        env:
+          COMPOSER_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          update: true
+
+      - name: Setup problem matchers
+        run: echo "::add-matcher::${{ runner.tool_cache }}/php.json"
+
+      - name: Run test suite
+        run: ${{ inputs.command }}
