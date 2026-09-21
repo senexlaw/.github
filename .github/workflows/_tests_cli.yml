@@ -11,6 +11,11 @@ on:
         description: "Command that runs the suite, its exit code decides the check"
         required: true
         type: string
+      name:
+        description: "Suite name, shown as the job name, in the run summary and on annotations"
+        default: tests
+        required: false
+        type: string
       cache_key:
         description: "PHP extensions cache key"
         required: true
@@ -40,7 +45,7 @@ jobs:
   tests:
     timeout-minutes: 15
     if: github.event.pull_request.draft == false
-    name: tests
+    name: ${{ inputs.name }}
     runs-on: ${{ matrix.os }}
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -85,4 +90,49 @@ jobs:
         run: echo "::add-matcher::${{ runner.tool_cache }}/php.json"
 
       - name: Run test suite
-        run: ${{ inputs.command }}
+        shell: bash
+        run: |
+          # The suite is a plain command, so the run page would otherwise show nothing but its
+          # log. Its last line goes to the run summary and to an annotation, and the exit code
+          # stays the result of the check.
+          set +e
+          output=$(${{ inputs.command }} 2>&1)
+          status=$?
+          set -e
+
+          printf '%s\n' "$output"
+
+          headline=$(printf '%s\n' "$output" | grep -v '^[[:space:]]*$' | tail -1)
+          [ -n "$headline" ] || headline='no output'
+
+          if [ "$status" -eq 0 ]; then
+              icon='✅'
+              verdict='passed'
+              details='<details>'
+          else
+              icon='❌'
+              verdict='failed'
+              details='<details open>'
+          fi
+
+          {
+              echo "## $icon ${{ inputs.name }} $verdict"
+              echo
+              echo "**$headline**"
+              echo
+              echo "$details<summary><code>${{ inputs.command }}</code></summary>"
+              echo
+              echo '```text'
+              printf '%s\n' "$output"
+              echo '```'
+              echo
+              echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$status" -eq 0 ]; then
+              echo "::notice title=${{ inputs.name }}::$headline"
+          else
+              echo "::error title=${{ inputs.name }}::$headline"
+          fi
+
+          exit $status
