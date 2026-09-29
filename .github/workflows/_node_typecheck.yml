@@ -1,0 +1,102 @@
+name: Code Analyse (node)
+
+# Runs a Node project's type check. The command's exit code decides the check. The install step
+# runs the project's lifecycle scripts, which is what generates framework types (for Nuxt, the
+# postinstall `nuxt prepare` writes .nuxt/tsconfig.json that vue-tsc extends). setup-node
+# registers the tsc problem matcher, so errors land as annotations on the diff.
+
+on:
+  workflow_call:
+    inputs:
+      node_version:
+        description: "Node version the check runs on"
+        default: "24"
+        required: false
+        type: string
+      install_command:
+        description: "Command that installs dependencies from the lockfile and generates types"
+        default: npm ci
+        required: false
+        type: string
+      command:
+        description: "Command that runs the type check, its exit code decides the check"
+        default: npm run typecheck
+        required: false
+        type: string
+      name:
+        description: "Check name, shown as the job name, in the run summary and on annotations"
+        default: typecheck
+        required: false
+        type: string
+
+jobs:
+  typecheck:
+    timeout-minutes: 15
+    if: github.event.pull_request.draft == false
+    name: ${{ inputs.name }}
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ inputs.node_version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: ${{ inputs.install_command }}
+
+      - name: Run type check
+        shell: bash
+        env:
+          CHECK_NAME: ${{ inputs.name }}
+          CHECK_COMMAND: ${{ inputs.command }}
+        run: |
+          # The last line of the output goes to the run summary and to an annotation, and the
+          # exit code stays the result of the check.
+          set +e
+          output=$(bash -c "$CHECK_COMMAND" 2>&1)
+          status=$?
+          set -e
+
+          printf '%s\n' "$output"
+
+          headline=$(printf '%s\n' "$output" | grep -v '^[[:space:]]*$' | tail -1)
+          [ -n "$headline" ] || headline='no output'
+
+          if [ "$status" -eq 0 ]; then
+              icon='✅'
+              verdict='passed'
+              details='<details>'
+          else
+              icon='❌'
+              verdict='failed'
+              details='<details open>'
+          fi
+
+          {
+              echo "## $icon $CHECK_NAME $verdict"
+              echo
+              echo "**$headline**"
+              echo
+              echo "$details<summary><code>$CHECK_COMMAND</code></summary>"
+              echo
+              echo '```text'
+              printf '%s\n' "$output"
+              echo '```'
+              echo
+              echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$status" -eq 0 ]; then
+              echo "::notice title=$CHECK_NAME::$headline"
+          else
+              echo "::error title=$CHECK_NAME::$headline"
+          fi
+
+          exit $status
